@@ -52,7 +52,7 @@ FROM ( SELECT DISTINCT
 	market_date, 
 	customer_id
 	FROM customer_purchases
-	) as [unique_visits]
+	) as [unique_visits];
 
 /* 2. Reverse the numbering of the query from a part so each customer’s most recent visit is labeled 1, 
 then write another query that uses this one as a subquery (or temp table) and filters the results to 
@@ -121,8 +121,14 @@ HINT: There are a possibly a few ways to do this query, but if you're struggling
 "best day" and "worst day"; 
 3) Query the second temp table twice, once for the best day, once for the worst day, 
 with a UNION binding them. */
-
-
+WITH Total_Sale AS (
+	SELECT market_date, row_number() OVER (ORDER BY SUM(quantity * cost_to_customer_per_qty) DESC) AS [sale_rank]
+	FROM customer_purchases
+	GROUP BY market_date
+)
+SELECT 'Highest Total Sale' AS description, market_date FROM Total_Sale WHERE [sale_rank] = 1
+UNION
+SELECT 'Lowest Total Sale' AS description, market_date FROM Total_Sale WHERE [sale_rank] = (SELECT count(*) FROM Total_Sale);
 
 
 /* SECTION 3 */
@@ -137,7 +143,15 @@ Remember, CROSS JOIN will explode your table rows, so CROSS JOIN should likely b
 Think a bit about the row counts: how many distinct vendors, product names are there (x)?
 How many customers are there (y). 
 Before your final group by you should have the product of those two queries (x*y).  */
-
+SELECT
+	v.vendor_name,
+	p.product_name,
+	PRINTF('$%.2f', vi.original_price * 5 * c.customer_count) AS total_sale
+FROM vendor_inventory AS vi
+	INNER JOIN product AS p ON vi.product_id = p.product_id
+	INNER JOIN vendor AS v ON vi.vendor_id = v.vendor_id
+	CROSS JOIN (SELECT count(*) AS customer_count FROM customer) AS c
+GROUP BY vi.vendor_id, vi.product_id;
 
 
 -- INSERT
@@ -145,21 +159,38 @@ Before your final group by you should have the product of those two queries (x*y
 This table will contain only products where the `product_qty_type = 'unit'`. 
 It should use all of the columns from the product table, as well as a new column for the `CURRENT_TIMESTAMP`.  
 Name the timestamp column `snapshot_timestamp`. */
-CREATE TABLE temp.product_units AS
-	SELECT * , DATETIME() as snapshot_timestamp
-	FROM product 
-	WHERE product_qty_type = 'unit';
+DROP TABLE IF EXISTS temp.product_units;
+CREATE TABLE temp.product_units (
+	product_id				INTEGER,
+	product_name			TEXT,
+	product_size			TEXT,
+	product_category_id		INTEGER,
+	product_qty_type		TEXT,
+	snapshot_timestamp		NUMERIC
+);
+
+INSERT INTO temp.product_units
+SELECT * , DATETIME() as snapshot_timestamp
+FROM product 
+WHERE product_qty_type = 'unit';
 
 
 /*2. Using `INSERT`, add a new row to the product_units table (with an updated timestamp). 
 This can be any product you desire (e.g. add another record for Apple Pie). */
-
+INSERT INTO temp.product_units VALUES(
+	7,
+	'Apple Pie',
+	'10"',
+	3,
+	'unit',
+	 datetime(CURRENT_TIMESTAMP, '-5 days')
+);
 
 -- DELETE
 /* 1. Delete the older record for the whatever product you added. 
 
 HINT: If you don't specify a WHERE clause, you are going to have a bad time.*/
-
+DELETE FROM temp.product_units WHERE product_name = 'Apple Pie' AND snapshot_timestamp < (SELECT DATE('now'));
 
 
 -- UPDATE
@@ -179,6 +210,19 @@ Finally, make sure you have a WHERE statement to update the right row,
 	you'll need to use product_units.product_id to refer to the correct row within the product_units table. 
 When you have all of these components, you can run the update statement. */
 
+ALTER TABLE temp.product_units
+ADD COLUMN current_quantity INTEGER;
 
+WITH Latest_Qty AS (
+	SELECT product_id, max(market_date), quantity
+	FROM vendor_inventory 
+	GROUP BY product_id 
+)
+UPDATE temp.product_units AS tpu
+	SET current_quantity = coalesce((
+		SELECT quantity 
+		FROM Latest_Qty AS lq
+		WHERE lq.product_id = tpu.product_id
+	), 0);
 
 
