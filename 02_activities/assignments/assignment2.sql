@@ -59,6 +59,7 @@ then write another query that uses this one as a subquery (or temp table) and fi
 only the customer’s most recent visit. */
 
 -- first query
+CREATE TABLE temp.unique_customer_visits AS
 SELECT
 	market_date,
 	customer_id
@@ -67,29 +68,24 @@ FROM ( SELECT DISTINCT
 	market_date, 
 	customer_id
 	FROM customer_purchases
-	) as [unique_visits]
+	) as [unique_visits];
+	
 
 -- second query
 SELECT 
-	MAX(market_date),
+	market_date,
 	customer_id,
 	visit_number
-	FROM (SELECT
-		market_date,
-		customer_id
-		, ROW_NUMBER() OVER(PARTITION BY customer_id ORDER BY market_date DESC) as [visit_number]
-		FROM ( 
-			SELECT DISTINCT 
-				market_date, 
-				customer_id
-			FROM customer_purchases
-			) as [unique_visits]
-		)
-	GROUP BY customer_id;
+	FROM unique_customer_visits
+	WHERE visit_number = 1;
+	
 /* 3. Using a COUNT() window function, include a value along with each row of the 
 customer_purchases table that indicates how many different times that customer has purchased that product_id. */
-
-
+SELECT
+	product_id,
+	customer_id
+,COUNT(*) OVER(PARTITION BY product_id, customer_id) as [count_purchase_product]
+FROM customer_purchases;
 
 -- String manipulations
 /* 1. Some product names in the product table have descriptions like "Jar" or "Organic". 
@@ -102,12 +98,19 @@ Remove any trailing or leading whitespaces. Don't just use a case statement for 
 | Habanero Peppers - Organic | Organic     |
 
 Hint: you might need to use INSTR(product_name,'-') to find the hyphens. INSTR will help split the column. */
-SELECT product_name, 
-
+SELECT *
+,	CASE 
+		WHEN INSTR(product_name, '-') THEN TRIM(SUBSTR(product_name, INSTR(product_name, '-') + 1)) 
+	END AS description 
+FROM product;
 
 /* 2. Filter the query to show any product_size value that contain a number with REGEXP. */
-
-
+SELECT *
+,	CASE 
+		WHEN INSTR(product_name, '-') THEN TRIM(SUBSTR(product_name, INSTR(product_name, '-') + 1)) 
+	END AS description 
+FROM product
+WHERE product_size REGEXP '[0-9]';
 
 -- UNION
 /* 1. Using a UNION, write a query that displays the market dates with the highest and lowest total sales.
@@ -142,12 +145,14 @@ Before your final group by you should have the product of those two queries (x*y
 This table will contain only products where the `product_qty_type = 'unit'`. 
 It should use all of the columns from the product table, as well as a new column for the `CURRENT_TIMESTAMP`.  
 Name the timestamp column `snapshot_timestamp`. */
-
+CREATE TABLE temp.product_units AS
+	SELECT * , DATETIME() as snapshot_timestamp
+	FROM product 
+	WHERE product_qty_type = 'unit';
 
 
 /*2. Using `INSERT`, add a new row to the product_units table (with an updated timestamp). 
 This can be any product you desire (e.g. add another record for Apple Pie). */
-
 
 
 -- DELETE
